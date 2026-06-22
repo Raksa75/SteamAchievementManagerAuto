@@ -52,6 +52,7 @@
             this._LockAllButton = new System.Windows.Forms.ToolStripButton();
             this._InvertAllButton = new System.Windows.Forms.ToolStripButton();
             this._UnlockAllButton = new System.Windows.Forms.ToolStripButton();
+            this._AutoUnlockButton = new System.Windows.Forms.ToolStripButton();
             this._DisplayLabel = new System.Windows.Forms.ToolStripLabel();
             this._DisplayLockedOnlyButton = new System.Windows.Forms.ToolStripButton();
             this._DisplayUnlockedOnlyButton = new System.Windows.Forms.ToolStripButton();
@@ -239,6 +240,7 @@
             this._LockAllButton,
             this._InvertAllButton,
             this._UnlockAllButton,
+            this._AutoUnlockButton,
             _ToolStripSeparator1,
             this._DisplayLabel,
             this._DisplayLockedOnlyButton,
@@ -283,9 +285,20 @@
             this._UnlockAllButton.Text = "Unlock All";
             this._UnlockAllButton.ToolTipText = "Unlock all achievements.";
             this._UnlockAllButton.Click += new System.EventHandler(this.OnUnlockAll);
-            // 
+            //
+            // _AutoUnlockButton
+            //
+            this._AutoUnlockButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.ImageAndText;
+            this._AutoUnlockButton.Image = global::SAM.Game.Resources.Unlock;
+            this._AutoUnlockButton.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this._AutoUnlockButton.Name = "_AutoUnlockButton";
+            this._AutoUnlockButton.Size = new System.Drawing.Size(85, 22);
+            this._AutoUnlockButton.Text = "Auto-Unlock";
+            this._AutoUnlockButton.ToolTipText = "Unlock and commit every non-protected achievement (skips red/online ones).";
+            this._AutoUnlockButton.Click += new System.EventHandler(this.OnAutoUnlock);
+            //
             // _DisplayLabel
-            // 
+            //
             this._DisplayLabel.Font = new System.Drawing.Font("Segoe UI", 9F);
             this._DisplayLabel.Name = "_DisplayLabel";
             this._DisplayLabel.Size = new System.Drawing.Size(62, 22);
@@ -416,6 +429,7 @@
         private System.Windows.Forms.ToolStripButton _LockAllButton;
         private System.Windows.Forms.ToolStripButton _InvertAllButton;
         private System.Windows.Forms.ToolStripButton _UnlockAllButton;
+        private System.Windows.Forms.ToolStripButton _AutoUnlockButton;
         private System.Windows.Forms.DataGridView _StatisticsDataGridView;
         private System.Windows.Forms.ToolStripButton _ResetButton;
         private System.Windows.Forms.ToolStripStatusLabel _DownloadStatusLabel;

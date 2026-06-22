@@ -39,6 +39,10 @@ namespace SAM.Game
         private readonly long _GameId;
         private readonly API.Client _SteamClient;
 
+        // When true, the manager runs headlessly: it unlocks every non-protected
+        // achievement, commits, and then closes itself (used for batch processing).
+        private readonly bool _AutoMode;
+
         private readonly WebClient _IconDownloader = new();
 
         private readonly List<Stats.AchievementInfo> _IconQueue = new();
@@ -53,7 +57,14 @@ namespace SAM.Game
         //private API.Callback<APITypes.UserStatsStored> UserStatsStoredCallback;
 
         public Manager(long gameId, API.Client client)
+            : this(gameId, client, false)
         {
+        }
+
+        public Manager(long gameId, API.Client client, bool autoMode)
+        {
+            this._AutoMode = autoMode;
+
             this.InitializeComponent();
 
             this._MainTabControl.SelectedTab = this._AchievementsTabPage;
@@ -102,6 +113,13 @@ namespace SAM.Game
             this._UserStatsReceivedCallback.OnRun += this.OnUserStatsReceived;
 
             //this.UserStatsStoredCallback = new API.Callback(1102, new API.Callback.CallbackFunction(this.OnUserStatsStored));
+
+            if (this._AutoMode == true)
+            {
+                // Stay out of the way while batch-processing the whole library.
+                this.WindowState = FormWindowState.Minimized;
+                this.ShowInTaskbar = false;
+            }
 
             this.RefreshStats();
         }
@@ -370,6 +388,7 @@ namespace SAM.Game
             {
                 this._GameStatusLabel.Text = $"Error while retrieving stats: {TranslateError(param.Result)}";
                 this.EnableInput();
+                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
@@ -377,6 +396,7 @@ namespace SAM.Game
             {
                 this._GameStatusLabel.Text = "Failed to load schema.";
                 this.EnableInput();
+                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
@@ -388,11 +408,15 @@ namespace SAM.Game
             {
                 this._GameStatusLabel.Text = "Error when handling achievements retrieval.";
                 this.EnableInput();
-                MessageBox.Show(
-                    "Error when handling achievements retrieval:\n" + e,
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                if (this._AutoMode == false)
+                {
+                    MessageBox.Show(
+                        "Error when handling achievements retrieval:\n" + e,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
@@ -404,16 +428,26 @@ namespace SAM.Game
             {
                 this._GameStatusLabel.Text = "Error when handling stats retrieval.";
                 this.EnableInput();
-                MessageBox.Show(
-                    "Error when handling stats retrieval:\n" + e,
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                if (this._AutoMode == false)
+                {
+                    MessageBox.Show(
+                        "Error when handling stats retrieval:\n" + e,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
             this._GameStatusLabel.Text = $"Retrieved {this._AchievementListView.Items.Count} achievements and {this._StatisticsDataGridView.Rows.Count} statistics.";
             this.EnableInput();
+
+            if (this._AutoMode == true)
+            {
+                this.PerformAutoUnlock(true);
+                this.ScheduleAutoCloseIfNeeded();
+            }
         }
 
         private void RefreshStats()
@@ -702,12 +736,14 @@ namespace SAM.Game
         {
             this._ReloadButton.Enabled = false;
             this._StoreButton.Enabled = false;
+            this._AutoUnlockButton.Enabled = false;
         }
 
         private void EnableInput()
         {
             this._ReloadButton.Enabled = true;
             this._StoreButton.Enabled = true;
+            this._AutoUnlockButton.Enabled = true;
         }
 
         private void OnTimer(object sender, EventArgs e)
@@ -744,6 +780,112 @@ namespace SAM.Game
             {
                 item.Checked = true;
             }
+        }
+
+        // Unlocks every achievement that can legitimately be set, skipping any
+        // protected/online achievement (the ones shown in red) and any that are
+        // already unlocked, then commits the result to Steam. Returns true if at
+        // least one achievement was newly unlocked.
+        private bool PerformAutoUnlock(bool silent)
+        {
+            int unlocked = 0;
+            int skipped = 0;
+            int failed = 0;
+
+            foreach (var def in this._AchievementDefinitions)
+            {
+                if (string.IsNullOrEmpty(def.Id) == true)
+                {
+                    continue;
+                }
+
+                // Protected/online achievements cannot be managed by SAM.
+                if ((def.Permission & 3) != 0)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
+                    def.Id,
+                    out bool isAchieved,
+                    out _) == false)
+                {
+                    continue;
+                }
+
+                if (isAchieved == true)
+                {
+                    continue;
+                }
+
+                if (this._SteamClient.SteamUserStats.SetAchievement(def.Id, true) == true)
+                {
+                    unlocked++;
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+
+            if (unlocked > 0)
+            {
+                this._SteamClient.SteamUserStats.StoreStats();
+            }
+
+            this._GameStatusLabel.Text =
+                $"Auto-unlock: {unlocked} unlocked, {skipped} protected (skipped), {failed} failed.";
+
+            if (silent == false)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Unlocked {unlocked} achievement(s).\n" +
+                    $"Skipped {skipped} protected/online achievement(s).\n" +
+                    (failed > 0 ? $"Failed to unlock {failed} achievement(s).\n" : ""),
+                    "Auto-Unlock",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                this.RefreshStats();
+            }
+
+            return unlocked > 0;
+        }
+
+        // In auto mode, give Steam a moment to flush the stored stats, then close.
+        private void ScheduleAutoCloseIfNeeded()
+        {
+            if (this._AutoMode == false)
+            {
+                return;
+            }
+
+            var closeTimer = new Timer() { Interval = 1500 };
+            closeTimer.Tick += (s, e) =>
+            {
+                closeTimer.Stop();
+                closeTimer.Dispose();
+                this.Close();
+            };
+            closeTimer.Start();
+        }
+
+        private void OnAutoUnlock(object sender, EventArgs e)
+        {
+            if (MessageBox.Show(
+                this,
+                "This will unlock ALL non-protected achievements for this game and commit them to Steam.\n\n" +
+                "Protected/online achievements (shown in red) will be skipped.\n\n" +
+                "Continue?",
+                "Auto-Unlock",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            this.PerformAutoUnlock(false);
         }
 
         private bool Store()

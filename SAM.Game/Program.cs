@@ -49,6 +49,11 @@ namespace SAM.Game
                 return;
             }
 
+            // Headless batch mode: "SAM.Game.exe <appId> auto" unlocks every
+            // non-protected achievement, commits, and closes automatically.
+            bool autoMode = args.Length > 1 &&
+                string.Equals(args[1], "auto", StringComparison.OrdinalIgnoreCase);
+
             if (API.Steam.GetInstallPath() == Application.StartupPath)
             {
                 MessageBox.Show(
@@ -109,7 +114,7 @@ namespace SAM.Game
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new Manager(appId, client));
+                Application.Run(new Manager(appId, client, autoMode));
             }
         }
     }
