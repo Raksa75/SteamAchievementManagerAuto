@@ -234,7 +234,7 @@ namespace SAM.Game
                     return false;
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 return false;
             }
@@ -809,7 +809,7 @@ namespace SAM.Game
                 if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
                     def.Id,
                     out bool isAchieved,
-                    out _) == false)
+                    out var unlockTime) == false)
                 {
                     continue;
                 }
