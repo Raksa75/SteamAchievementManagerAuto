@@ -471,6 +471,126 @@ namespace SAM.Picker
             this.AddGames();
         }
 
+        private void OnAutoUnlockAll(object sender, EventArgs e)
+        {
+            if (this._AutoUnlockWorker.IsBusy == true)
+            {
+                return;
+            }
+
+            var games = this._FilteredGames.ToList();
+            if (games.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "There are no games in the current list to process.",
+                    "Auto-Unlock All",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            if (MessageBox.Show(
+                this,
+                _($"This will go through {games.Count} game(s) shown in the list and unlock every ") +
+                "non-protected achievement for each one (games that are already complete are left untouched).\n\n" +
+                "Protected/online achievements (shown in red) are always skipped.\n\n" +
+                "Each game is opened briefly and closed automatically. This can take a while.\n\n" +
+                "Continue?",
+                "Auto-Unlock All",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            this._AutoUnlockAllButton.Enabled = false;
+            this._RefreshGamesButton.Enabled = false;
+            this._AutoUnlockWorker.RunWorkerAsync(games);
+        }
+
+        private void DoAutoUnlockAll(object sender, DoWorkEventArgs e)
+        {
+            var games = (List<GameInfo>)e.Argument;
+            int total = games.Count;
+            int index = 0;
+
+            foreach (var game in games)
+            {
+                if (this._AutoUnlockWorker.CancellationPending == true)
+                {
+                    e.Cancel = true;
+                    break;
+                }
+
+                index++;
+                this._AutoUnlockWorker.ReportProgress(
+                    (int)(index * 100L / total),
+                    _($"Auto-unlocking {index}/{total}: {game.Name} ({game.Id})..."));
+
+                try
+                {
+                    var startInfo = new ProcessStartInfo(
+                        "SAM.Game.exe",
+                        _($"{game.Id} auto"))
+                    {
+                        UseShellExecute = false,
+                    };
+
+                    using (var process = Process.Start(startInfo))
+                    {
+                        if (process != null)
+                        {
+                            // Give each game up to a minute; kill it if it hangs
+                            // so the batch keeps moving.
+                            if (process.WaitForExit(60000) == false)
+                            {
+                                try
+                                {
+                                    process.Kill();
+                                }
+                                catch (Exception)
+                                {
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // Skip games that fail to launch and carry on with the rest.
+                }
+            }
+        }
+
+        private void OnAutoUnlockAllProgress(object sender, ProgressChangedEventArgs e)
+        {
+            if (e.UserState is string status)
+            {
+                this._PickerStatusLabel.Text = status;
+            }
+        }
+
+        private void OnAutoUnlockAllCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            this._AutoUnlockAllButton.Enabled = true;
+            this._RefreshGamesButton.Enabled = true;
+
+            this._PickerStatusLabel.Text = e.Cancelled == true
+                ? "Auto-unlock all cancelled."
+                : "Auto-unlock all finished.";
+
+            if (e.Cancelled == false)
+            {
+                MessageBox.Show(
+                    this,
+                    "Finished auto-unlocking achievements for all games in the list.",
+                    "Auto-Unlock All",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+        }
+
         private void OnAddGame(object sender, EventArgs e)
         {
             uint id;

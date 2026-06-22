@@ -36,6 +36,7 @@
             this._CallbackTimer = new System.Windows.Forms.Timer(this.components);
             this._PickerToolStrip = new System.Windows.Forms.ToolStrip();
             this._RefreshGamesButton = new System.Windows.Forms.ToolStripButton();
+            this._AutoUnlockAllButton = new System.Windows.Forms.ToolStripButton();
             this._AddGameTextBox = new System.Windows.Forms.ToolStripTextBox();
             this._AddGameButton = new System.Windows.Forms.ToolStripButton();
             this._FindGamesLabel = new System.Windows.Forms.ToolStripLabel();
@@ -51,6 +52,7 @@
             this._DownloadStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this._LogoWorker = new System.ComponentModel.BackgroundWorker();
             this._ListWorker = new System.ComponentModel.BackgroundWorker();
+            this._AutoUnlockWorker = new System.ComponentModel.BackgroundWorker();
             _ToolStripSeparator1 = new System.Windows.Forms.ToolStripSeparator();
             _ToolStripSeparator2 = new System.Windows.Forms.ToolStripSeparator();
             this._PickerToolStrip.SuspendLayout();
@@ -82,6 +84,7 @@
             //
             this._PickerToolStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this._RefreshGamesButton,
+            this._AutoUnlockAllButton,
             _ToolStripSeparator1,
             this._AddGameTextBox,
             this._AddGameButton,
@@ -103,6 +106,17 @@
             this._RefreshGamesButton.Size = new System.Drawing.Size(105, 22);
             this._RefreshGamesButton.Text = "Refresh Games";
             this._RefreshGamesButton.Click += new System.EventHandler(this.OnRefresh);
+            //
+            // _AutoUnlockAllButton
+            //
+            this._AutoUnlockAllButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this._AutoUnlockAllButton.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this._AutoUnlockAllButton.Name = "_AutoUnlockAllButton";
+            this._AutoUnlockAllButton.Size = new System.Drawing.Size(105, 22);
+            this._AutoUnlockAllButton.Text = "Auto-Unlock All";
+            this._AutoUnlockAllButton.ToolTipText = "Unlock every non-protected achievement for all games in the list (skips red/onlin" +
+    "e ones).";
+            this._AutoUnlockAllButton.Click += new System.EventHandler(this.OnAutoUnlockAll);
             //
             // _AddGameTextBox
             //
@@ -241,6 +255,14 @@
             this._ListWorker.DoWork += new System.ComponentModel.DoWorkEventHandler(this.DoDownloadList);
             this._ListWorker.RunWorkerCompleted += new System.ComponentModel.RunWorkerCompletedEventHandler(this.OnDownloadList);
             //
+            // _AutoUnlockWorker
+            //
+            this._AutoUnlockWorker.WorkerReportsProgress = true;
+            this._AutoUnlockWorker.WorkerSupportsCancellation = true;
+            this._AutoUnlockWorker.DoWork += new System.ComponentModel.DoWorkEventHandler(this.DoAutoUnlockAll);
+            this._AutoUnlockWorker.ProgressChanged += new System.ComponentModel.ProgressChangedEventHandler(this.OnAutoUnlockAllProgress);
+            this._AutoUnlockWorker.RunWorkerCompleted += new System.ComponentModel.RunWorkerCompletedEventHandler(this.OnAutoUnlockAllCompleted);
+            //
             // GamePicker
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -265,6 +287,8 @@
         private System.Windows.Forms.Timer _CallbackTimer;
         private System.Windows.Forms.ToolStrip _PickerToolStrip;
         private System.Windows.Forms.ToolStripButton _RefreshGamesButton;
+        private System.Windows.Forms.ToolStripButton _AutoUnlockAllButton;
+        private System.ComponentModel.BackgroundWorker _AutoUnlockWorker;
         private System.Windows.Forms.ToolStripTextBox _AddGameTextBox;
         private System.Windows.Forms.ToolStripButton _AddGameButton;
         private System.Windows.Forms.ToolStripDropDownButton _FilterDropDownButton;
