@@ -30,6 +30,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.XPath;
 using static SAM.Picker.InvariantShorthand;
@@ -75,7 +77,35 @@ namespace SAM.Picker
             this._AppDataChangedCallback = client.CreateAndRegisterCallback<API.Callbacks.AppDataChanged>();
             this._AppDataChangedCallback.OnRun += this.OnAppDataChanged;
 
+            Common.Theme.Apply(this);
+
             this.AddGames();
+        }
+
+        private ulong GetSteamId()
+        {
+            try
+            {
+                return this._SteamClient.SteamUser.GetSteamId();
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        private static bool HasLocalAchievements(uint id)
+        {
+            try
+            {
+                var path = API.Steam.GetInstallPath();
+                path = Path.Combine(path, "appcache", "stats", _($"UserGameStatsSchema_{id}.bin"));
+                return File.Exists(path);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private void OnAppDataChanged(APITypes.AppDataChanged param)
@@ -471,6 +501,32 @@ namespace SAM.Picker
             this.AddGames();
         }
 
+        private sealed class AutoUnlockArgs
+        {
+            public List<GameInfo> Games;
+            public string ApiKey;
+            public ulong SteamId;
+        }
+
+        private sealed class AutoUnlockResult
+        {
+            public int Total;
+            public int Processed;
+            public int SkippedComplete;
+            public int SkippedNoAchievements;
+            public bool UsedApi;
+            public bool ApiFellBack;
+        }
+
+        private void OnConfigureApiKey(object sender, EventArgs e)
+        {
+            using var form = new ApiKeyForm(Settings.ApiKey);
+            if (form.ShowDialog(this) == DialogResult.OK)
+            {
+                Settings.ApiKey = form.ApiKey;
+            }
+        }
+
         private void OnAutoUnlockAll(object sender, EventArgs e)
         {
             if (this._AutoUnlockWorker.IsBusy == true)
@@ -490,12 +546,19 @@ namespace SAM.Picker
                 return;
             }
 
+            var apiKey = Settings.ApiKey;
+            var steamId = this.GetSteamId();
+            bool useApi = string.IsNullOrWhiteSpace(apiKey) == false && steamId != 0;
+
+            var detection = useApi == true
+                ? "Your Steam profile will be checked first so games that are already 100% (or have no achievements) are skipped."
+                : "No Steam Web API key is set, so games without achievements are skipped but already-completed games can't be detected without opening them.\n\nTip: set an API key (the key button) for a much faster, smarter run.";
+
             if (MessageBox.Show(
                 this,
-                _($"This will go through {games.Count} game(s) shown in the list and unlock every ") +
-                "non-protected achievement for each one (games that are already complete are left untouched).\n\n" +
+                _($"This will unlock every non-protected achievement for the {games.Count} game(s) in the list.\n\n") +
+                detection + "\n\n" +
                 "Protected/online achievements (shown in red) are always skipped.\n\n" +
-                "Each game is opened briefly and closed automatically. This can take a while.\n\n" +
                 "Continue?",
                 "Auto-Unlock All",
                 MessageBoxButtons.YesNo,
@@ -506,16 +569,36 @@ namespace SAM.Picker
 
             this._AutoUnlockAllButton.Enabled = false;
             this._RefreshGamesButton.Enabled = false;
-            this._AutoUnlockWorker.RunWorkerAsync(games);
+            this._AutoUnlockWorker.RunWorkerAsync(new AutoUnlockArgs()
+            {
+                Games = games,
+                ApiKey = apiKey,
+                SteamId = steamId,
+            });
         }
 
         private void DoAutoUnlockAll(object sender, DoWorkEventArgs e)
         {
-            var games = (List<GameInfo>)e.Argument;
-            int total = games.Count;
-            int index = 0;
+            var args = (AutoUnlockArgs)e.Argument;
+            var result = new AutoUnlockResult() { Total = args.Games.Count };
 
-            foreach (var game in games)
+            bool useApi = string.IsNullOrWhiteSpace(args.ApiKey) == false && args.SteamId != 0;
+            List<GameInfo> toProcess;
+
+            if (useApi == true)
+            {
+                result.UsedApi = true;
+                toProcess = this.ScanWithApi(args, result, out bool fellBack);
+                result.ApiFellBack = fellBack;
+            }
+            else
+            {
+                toProcess = FilterLocal(args.Games, result);
+            }
+
+            int total = toProcess.Count;
+            int index = 0;
+            foreach (var game in toProcess)
             {
                 if (this._AutoUnlockWorker.CancellationPending == true)
                 {
@@ -525,41 +608,135 @@ namespace SAM.Picker
 
                 index++;
                 this._AutoUnlockWorker.ReportProgress(
-                    (int)(index * 100L / total),
-                    _($"Auto-unlocking {index}/{total}: {game.Name} ({game.Id})..."));
+                    total == 0 ? 100 : (int)(index * 100L / total),
+                    _($"Unlocking {index}/{total}: {game.Name} ({game.Id})..."));
 
-                try
+                if (LaunchAuto(game.Id) == true)
                 {
-                    var startInfo = new ProcessStartInfo(
-                        "SAM.Game.exe",
-                        _($"{game.Id} auto"))
-                    {
-                        UseShellExecute = false,
-                    };
+                    result.Processed++;
+                }
+            }
 
-                    using (var process = Process.Start(startInfo))
+            e.Result = result;
+        }
+
+        // Uses the Steam Web API to build the list of games that actually need
+        // unlocking, skipping completed and achievement-less games. Falls back to
+        // local detection if the API turns out to be unusable (bad key / private).
+        private List<GameInfo> ScanWithApi(AutoUnlockArgs args, AutoUnlockResult result, out bool fellBack)
+        {
+            var incomplete = new ConcurrentBag<GameInfo>();
+            int scanned = 0;
+            int queriedOk = 0;
+            int skippedComplete = 0;
+            int skippedNoAchievements = 0;
+            int total = args.Games.Count;
+
+            var options = new ParallelOptions() { MaxDegreeOfParallelism = 6 };
+            try
+            {
+                Parallel.ForEach(args.Games, options, (game, state) =>
+                {
+                    if (this._AutoUnlockWorker.CancellationPending == true)
                     {
-                        if (process != null)
+                        state.Stop();
+                        return;
+                    }
+
+                    var completion = SteamWebApi.GetPlayerAchievements(args.ApiKey, args.SteamId, game.Id);
+                    if (completion.Queried == true)
+                    {
+                        Interlocked.Increment(ref queriedOk);
+                        if (completion.HasStats == false)
                         {
-                            // Give each game up to a minute; kill it if it hangs
-                            // so the batch keeps moving.
-                            if (process.WaitForExit(60000) == false)
-                            {
-                                try
-                                {
-                                    process.Kill();
-                                }
-                                catch (Exception)
-                                {
-                                }
-                            }
+                            Interlocked.Increment(ref skippedNoAchievements);
+                        }
+                        else if (completion.IsComplete == true)
+                        {
+                            Interlocked.Increment(ref skippedComplete);
+                        }
+                        else
+                        {
+                            incomplete.Add(game);
+                        }
+                    }
+                    else
+                    {
+                        // Couldn't determine this one; include it to be safe.
+                        incomplete.Add(game);
+                    }
+
+                    int done = Interlocked.Increment(ref scanned);
+                    this._AutoUnlockWorker.ReportProgress(
+                        (int)(done * 100L / total),
+                        _($"Scanning profile {done}/{total}..."));
+                });
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // If nothing came back cleanly, the key/profile is unusable: fall back.
+            if (queriedOk == 0)
+            {
+                fellBack = true;
+                return FilterLocal(args.Games, result);
+            }
+
+            fellBack = false;
+            result.SkippedComplete = skippedComplete;
+            result.SkippedNoAchievements = skippedNoAchievements;
+            return incomplete.ToList();
+        }
+
+        // Without an API key, skip games that have no local achievement schema.
+        private static List<GameInfo> FilterLocal(List<GameInfo> games, AutoUnlockResult result)
+        {
+            var toProcess = new List<GameInfo>();
+            foreach (var game in games)
+            {
+                if (HasLocalAchievements(game.Id) == true)
+                {
+                    toProcess.Add(game);
+                }
+                else
+                {
+                    result.SkippedNoAchievements++;
+                }
+            }
+            return toProcess;
+        }
+
+        private static bool LaunchAuto(uint id)
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo("SAM.Game.exe", _($"{id} auto"))
+                {
+                    UseShellExecute = false,
+                };
+
+                using var process = Process.Start(startInfo);
+                if (process != null)
+                {
+                    // Give each game up to a minute; kill it if it hangs so the
+                    // batch keeps moving.
+                    if (process.WaitForExit(60000) == false)
+                    {
+                        try
+                        {
+                            process.Kill();
+                        }
+                        catch (Exception)
+                        {
                         }
                     }
                 }
-                catch (Exception)
-                {
-                    // Skip games that fail to launch and carry on with the rest.
-                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -576,19 +753,42 @@ namespace SAM.Picker
             this._AutoUnlockAllButton.Enabled = true;
             this._RefreshGamesButton.Enabled = true;
 
-            this._PickerStatusLabel.Text = e.Cancelled == true
-                ? "Auto-unlock all cancelled."
-                : "Auto-unlock all finished.";
-
-            if (e.Cancelled == false)
+            if (e.Cancelled == true)
             {
-                MessageBox.Show(
-                    this,
-                    "Finished auto-unlocking achievements for all games in the list.",
-                    "Auto-Unlock All",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                this._PickerStatusLabel.Text = "Auto-unlock all cancelled.";
+                return;
             }
+
+            var result = e.Result as AutoUnlockResult;
+            if (result == null)
+            {
+                this._PickerStatusLabel.Text = "Auto-unlock all finished.";
+                return;
+            }
+
+            this._PickerStatusLabel.Text =
+                _($"Auto-unlock all finished. Processed {result.Processed} of {result.Total} game(s).");
+
+            var summary = _($"Processed {result.Processed} game(s).\n");
+            if (result.SkippedComplete > 0)
+            {
+                summary += _($"Skipped {result.SkippedComplete} already at 100%.\n");
+            }
+            if (result.SkippedNoAchievements > 0)
+            {
+                summary += _($"Skipped {result.SkippedNoAchievements} with no achievements.\n");
+            }
+            if (result.UsedApi == true && result.ApiFellBack == true)
+            {
+                summary += "\nNote: the Steam Web API key/profile looked unusable (private profile or bad key), so local detection was used instead.";
+            }
+
+            MessageBox.Show(
+                this,
+                summary,
+                "Auto-Unlock All",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
 
         private void OnAddGame(object sender, EventArgs e)

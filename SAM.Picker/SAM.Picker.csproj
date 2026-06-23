@@ -37,6 +37,9 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\Common\Theme.cs" Link="Common\Theme.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Update="MyListView.cs">
       <SubType>Component</SubType>
     </Compile>

@@ -79,6 +79,7 @@ namespace SAM.Picker
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                ToolStripManager.Renderer = new SAM.Common.DarkToolStripRenderer();
                 Application.Run(new GamePicker(client));
             }
         }

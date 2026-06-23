@@ -114,6 +114,7 @@ namespace SAM.Game
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                ToolStripManager.Renderer = new SAM.Common.DarkToolStripRenderer();
                 Application.Run(new Manager(appId, client, autoMode));
             }
         }
