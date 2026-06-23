@@ -114,6 +114,9 @@ namespace SAM.Game
 
             //this.UserStatsStoredCallback = new API.Callback(1102, new API.Callback.CallbackFunction(this.OnUserStatsStored));
 
+            Common.Theme.Apply(this);
+            Common.Theme.StyleDetailsHeaders(this._AchievementListView);
+
             if (this._AutoMode == true)
             {
                 // Stay out of the way while batch-processing the whole library.
@@ -540,7 +543,8 @@ namespace SAM.Game
                     Checked = isAchieved,
                     Tag = info,
                     Text = info.Name,
-                    BackColor = (def.Permission & 3) == 0 ? Color.Black : Color.FromArgb(64, 0, 0),
+                    BackColor = (def.Permission & 3) == 0 ? Common.Theme.Surface : Common.Theme.DangerSurface,
+                    ForeColor = Common.Theme.TextPrimary,
                 };
 
                 info.Item = item;
@@ -861,7 +865,7 @@ namespace SAM.Game
                 return;
             }
 
-            var closeTimer = new Timer() { Interval = 1500 };
+            var closeTimer = new Timer() { Interval = 1000 };
             closeTimer.Tick += (s, e) =>
             {
                 closeTimer.Stop();

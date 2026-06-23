@@ -33,6 +33,25 @@ This fork adds automatic achievement unlocking on top of the original SAM:
 Protected/online achievements can never be changed by Steam Achievement Manager,
 so they are always skipped.
 
+### Faster *Auto-Unlock All* (optional Steam Web API key)
+
+To avoid opening games that are already finished, *Auto-Unlock All* can read your
+achievement progress from your Steam profile:
+
+- Click **Steam API Key…** in SAM.Picker and paste a key from
+  [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey)
+  (your Steam profile and game details must be public).
+- With a key set, SAM first scans your profile (in parallel) and **skips games
+  that are already 100% or have no achievements**, only opening the ones that
+  actually need unlocking.
+- Without a key it still skips games that have no achievements locally, but it
+  can't detect already-completed games without opening them. If the key/profile
+  turns out to be unusable, it automatically falls back to this local mode.
+
+### Appearance
+
+The interface uses a sober dark theme with a single blue accent.
+
 ## Attribution
 
 Most (if not all) icons are from the [Fugue Icons](https://p.yusukekamiyamane.com/) set.

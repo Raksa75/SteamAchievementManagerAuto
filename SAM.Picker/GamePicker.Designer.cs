@@ -37,6 +37,7 @@
             this._PickerToolStrip = new System.Windows.Forms.ToolStrip();
             this._RefreshGamesButton = new System.Windows.Forms.ToolStripButton();
             this._AutoUnlockAllButton = new System.Windows.Forms.ToolStripButton();
+            this._ApiKeyButton = new System.Windows.Forms.ToolStripButton();
             this._AddGameTextBox = new System.Windows.Forms.ToolStripTextBox();
             this._AddGameButton = new System.Windows.Forms.ToolStripButton();
             this._FindGamesLabel = new System.Windows.Forms.ToolStripLabel();
@@ -85,6 +86,7 @@
             this._PickerToolStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this._RefreshGamesButton,
             this._AutoUnlockAllButton,
+            this._ApiKeyButton,
             _ToolStripSeparator1,
             this._AddGameTextBox,
             this._AddGameButton,
@@ -117,6 +119,16 @@
             this._AutoUnlockAllButton.ToolTipText = "Unlock every non-protected achievement for all games in the list (skips red/onlin" +
     "e ones).";
             this._AutoUnlockAllButton.Click += new System.EventHandler(this.OnAutoUnlockAll);
+            //
+            // _ApiKeyButton
+            //
+            this._ApiKeyButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this._ApiKeyButton.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this._ApiKeyButton.Name = "_ApiKeyButton";
+            this._ApiKeyButton.Size = new System.Drawing.Size(95, 22);
+            this._ApiKeyButton.Text = "Steam API Key…";
+            this._ApiKeyButton.ToolTipText = "Set your Steam Web API key so completed games are skipped during Auto-Unlock All.";
+            this._ApiKeyButton.Click += new System.EventHandler(this.OnConfigureApiKey);
             //
             // _AddGameTextBox
             //
@@ -288,6 +300,7 @@
         private System.Windows.Forms.ToolStrip _PickerToolStrip;
         private System.Windows.Forms.ToolStripButton _RefreshGamesButton;
         private System.Windows.Forms.ToolStripButton _AutoUnlockAllButton;
+        private System.Windows.Forms.ToolStripButton _ApiKeyButton;
         private System.ComponentModel.BackgroundWorker _AutoUnlockWorker;
         private System.Windows.Forms.ToolStripTextBox _AddGameTextBox;
         private System.Windows.Forms.ToolStripButton _AddGameButton;
