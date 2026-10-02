@@ -32,6 +32,10 @@ namespace SAM.Game.Stats
         public bool IsHidden;
         public int Permission;
 
+        // Protected achievements (shown in red) can only be set by the game or a
+        // trusted server, so SAM must never try to change them.
+        public bool IsProtected => (this.Permission & 3) != 0;
+
         public override string ToString()
         {
             return $"{this.Name ?? this.Id ?? base.ToString()}: {this.Permission}";

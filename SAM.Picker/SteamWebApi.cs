@@ -21,19 +21,30 @@
  */
 
 using System;
+using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
 using static SAM.Picker.InvariantShorthand;
 
 namespace SAM.Picker
 {
-    // Minimal client for the public Steam Web API, used only to read achievement
+    // Minimal client for the public Steam Web API, used to read achievement
     // completion so that already-finished games can be skipped during a batch.
     internal static class SteamWebApi
     {
+        private const int TimeoutMilliseconds = 15000;
+
+        static SteamWebApi()
+        {
+            // .NET Framework allows only 2 concurrent connections per host by
+            // default, which would serialize the parallel profile scan.
+            ServicePointManager.DefaultConnectionLimit = Math.Max(ServicePointManager.DefaultConnectionLimit, 16);
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+        }
+
         public struct Completion
         {
-            // True if the API gave us a definitive answer for this app.
+            // True if the API gave a definitive answer for this app.
             public bool Queried;
             // True if the app actually has player achievements.
             public bool HasStats;
@@ -43,75 +54,114 @@ namespace SAM.Picker
             public bool IsComplete => this.HasStats == true && this.Total > 0 && this.Unlocked >= this.Total;
         }
 
+        public enum KeyStatus
+        {
+            Valid,
+            ProfilePrivate,
+            InvalidKey,
+            NetworkError,
+        }
+
         private static readonly Regex AchievedPattern =
             new(@"""achieved""\s*:\s*(\d)", RegexOptions.Compiled);
 
+        private static readonly Regex VisibilityPattern =
+            new(@"""communityvisibilitystate""\s*:\s*(\d+)", RegexOptions.Compiled);
+
         public static Completion GetPlayerAchievements(string apiKey, ulong steamId, uint appId)
         {
-            var completion = new Completion();
+            var (status, body) = Get(_($"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/?appid={appId}&key={Uri.EscapeDataString(apiKey)}&steamid={steamId}"));
 
+            switch (status)
+            {
+                case HttpStatusCode.OK:
+                {
+                    if (body.IndexOf("\"success\":true", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        return new Completion() { Queried = true, HasStats = false };
+                    }
+
+                    int total = 0;
+                    int unlocked = 0;
+                    foreach (Match match in AchievedPattern.Matches(body))
+                    {
+                        total++;
+                        if (match.Groups[1].Value == "1")
+                        {
+                            unlocked++;
+                        }
+                    }
+                    return new Completion() { Queried = true, HasStats = total > 0, Total = total, Unlocked = unlocked };
+                }
+
+                // Bad key, or private profile/game details: the answer is unknown.
+                case HttpStatusCode.Unauthorized:
+                case HttpStatusCode.Forbidden:
+                case null:
+                    return new Completion() { Queried = false };
+
+                // 400/500 => this particular app simply has no player stats.
+                default:
+                    return new Completion() { Queried = true, HasStats = false };
+            }
+        }
+
+        // Checks the key and whether the profile is public, for the settings dialog.
+        public static KeyStatus ValidateKey(string apiKey, ulong steamId)
+        {
+            var (status, body) = Get(_($"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={Uri.EscapeDataString(apiKey)}&steamids={steamId}"));
+
+            switch (status)
+            {
+                case HttpStatusCode.OK:
+                {
+                    var match = VisibilityPattern.Match(body);
+                    // 3 = public; anything else hides achievements from the API.
+                    return match.Success == true && match.Groups[1].Value == "3"
+                        ? KeyStatus.Valid
+                        : KeyStatus.ProfilePrivate;
+                }
+
+                case HttpStatusCode.Unauthorized:
+                case HttpStatusCode.Forbidden:
+                    return KeyStatus.InvalidKey;
+
+                default:
+                    return KeyStatus.NetworkError;
+            }
+        }
+
+        // Returns the HTTP status (null on network failure) and the body.
+        private static (HttpStatusCode? Status, string Body) Get(string url)
+        {
             try
             {
-                var url = _($"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?appid={appId}&key={apiKey}&steamid={steamId}");
+                var request = (HttpWebRequest)WebRequest.Create(url);
+                request.Timeout = TimeoutMilliseconds;
+                request.ReadWriteTimeout = TimeoutMilliseconds;
+                request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
 
-                string json;
-                using (var client = new WebClient())
-                {
-                    json = client.DownloadString(new Uri(url));
-                }
-
-                completion.Queried = true;
-
-                if (json.IndexOf("\"success\":true", StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    // Profile reachable but the app reports no usable stats.
-                    completion.HasStats = false;
-                    return completion;
-                }
-
-                int total = 0;
-                int unlocked = 0;
-                foreach (Match match in AchievedPattern.Matches(json))
-                {
-                    total++;
-                    if (match.Groups[1].Value == "1")
-                    {
-                        unlocked++;
-                    }
-                }
-
-                completion.HasStats = total > 0;
-                completion.Total = total;
-                completion.Unlocked = unlocked;
-                return completion;
+                using var response = (HttpWebResponse)request.GetResponse();
+                return (response.StatusCode, ReadBody(response));
             }
-            catch (WebException webException)
+            catch (WebException e) when (e.Response is HttpWebResponse response)
             {
-                if (webException.Response is HttpWebResponse response)
+                using (response)
                 {
-                    // 401/403 => bad key or private profile: the API is unusable,
-                    // so report "not queried" to trigger the local fallback.
-                    if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                        response.StatusCode == HttpStatusCode.Forbidden)
-                    {
-                        completion.Queried = false;
-                        return completion;
-                    }
-
-                    // 400/500 => this particular app simply has no player stats.
-                    completion.Queried = true;
-                    completion.HasStats = false;
-                    return completion;
+                    return (response.StatusCode, "");
                 }
-
-                completion.Queried = false;
-                return completion;
             }
             catch (Exception)
             {
-                completion.Queried = false;
-                return completion;
+                return (null, "");
             }
+        }
+
+        private static string ReadBody(WebResponse response)
+        {
+            using var stream = response.GetResponseStream();
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
         }
     }
 }

@@ -22,101 +22,115 @@
 
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Windows.Forms;
+using SAM.Common;
 
 namespace SAM.Game
 {
     internal static class Program
     {
+        // Usage:
+        //   SAM.Game.exe <appId>        open the manager for a game
+        //   SAM.Game.exe <appId> auto   headless: unlock everything allowed, exit
+        //                               with the unlocked count (see AutoUnlockProtocol)
         [STAThread]
-        public static void Main(string[] args)
+        public static int Main(string[] args)
         {
-            long appId;
+            bool autoMode = args.Length > 1 &&
+                string.Equals(args[1], AutoUnlockProtocol.Argument, StringComparison.OrdinalIgnoreCase);
+
+            if (autoMode == false)
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+            }
 
             if (args.Length == 0)
             {
-                Process.Start("SAM.Picker.exe");
-                return;
+                StartPicker();
+                return 0;
             }
 
-            if (long.TryParse(args[0], out appId) == false)
+            if (long.TryParse(args[0], out long appId) == false)
             {
-                MessageBox.Show(
-                    "Could not parse application ID from command line argument.",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                return;
+                return Fail(autoMode, AutoUnlockProtocol.UnexpectedError,
+                    "Could not parse application ID from command line argument.");
             }
-
-            // Headless batch mode: "SAM.Game.exe <appId> auto" unlocks every
-            // non-protected achievement, commits, and closes automatically.
-            bool autoMode = args.Length > 1 &&
-                string.Equals(args[1], "auto", StringComparison.OrdinalIgnoreCase);
 
             if (API.Steam.GetInstallPath() == Application.StartupPath)
             {
-                MessageBox.Show(
-                    "This tool declines to being run from the Steam directory.",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                return;
+                return Fail(autoMode, AutoUnlockProtocol.UnexpectedError,
+                    "This tool declines to being run from the Steam directory.");
             }
 
-            using (API.Client client = new())
+            using API.Client client = new();
+            try
+            {
+                client.Initialize(appId);
+            }
+            catch (API.ClientInitializeException e)
+            {
+                var message = "Steam is not running. Please start Steam then run this tool again.";
+                if (e.Failure == API.ClientInitializeFailure.ConnectToGlobalUser)
+                {
+                    message +=
+                        "\n\nIf you have the game through Family Share, the game may be locked " +
+                        "because the Family Share account is playing a game.";
+                }
+                if (string.IsNullOrEmpty(e.Message) == false)
+                {
+                    message += "\n\n(" + e.Message + ")";
+                }
+                return Fail(autoMode, AutoUnlockProtocol.SteamUnavailable, message);
+            }
+            catch (DllNotFoundException)
+            {
+                return Fail(autoMode, AutoUnlockProtocol.SteamUnavailable,
+                    "Couldn't load the Steam client library. Is Steam installed?");
+            }
+
+            if (autoMode == true)
             {
                 try
                 {
-                    client.Initialize(appId);
+                    return AutoUnlocker.Run(appId, client);
                 }
-                catch (API.ClientInitializeException e)
+                catch (Exception)
                 {
-                    if (e.Failure == API.ClientInitializeFailure.ConnectToGlobalUser)
-                    {
-                        MessageBox.Show(
-                            "Steam is not running. Please start Steam then run this tool again.\n\n" +
-                            "If you have the game through Family Share, the game may be locked due to\n" +
-                            "the Family Share account actively playing a game.\n\n" +
-                            "(" + e.Message + ")",
-                            "Error",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-                    }
-                    else if (string.IsNullOrEmpty(e.Message) == false)
-                    {
-                        MessageBox.Show(
-                            "Steam is not running. Please start Steam then run this tool again.\n\n" +
-                            "(" + e.Message + ")",
-                            "Error",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-                    }
-                    else
-                    {
-                        MessageBox.Show(
-                            "Steam is not running. Please start Steam then run this tool again.",
-                            "Error",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-                    }
-                    return;
+                    return AutoUnlockProtocol.UnexpectedError;
                 }
-                catch (DllNotFoundException)
-                {
-                    MessageBox.Show(
-                        "You've caused an exceptional error!",
-                        "Error",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                    return;
-                }
-
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                ToolStripManager.Renderer = new SAM.Common.DarkToolStripRenderer();
-                Application.Run(new Manager(appId, client, autoMode));
             }
+
+            ToolStripManager.Renderer = new DarkToolStripRenderer();
+            Application.Run(new Manager(appId, client));
+            return 0;
+        }
+
+        private static void StartPicker()
+        {
+            try
+            {
+                Process.Start(Path.Combine(Application.StartupPath, "SAM.Picker.exe"));
+            }
+            catch (Exception)
+            {
+                MessageBox.Show(
+                    "Couldn't start SAM.Picker.exe. Make sure it is next to SAM.Game.exe.",
+                    "Steam Achievement Manager",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        // Headless runs must never block on a dialog: they only report an exit code.
+        private static int Fail(bool silent, int exitCode, string message)
+        {
+            if (silent == false)
+            {
+                MessageBox.Show(message, "Steam Achievement Manager", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            return exitCode;
         }
     }
 }

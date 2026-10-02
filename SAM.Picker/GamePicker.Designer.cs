@@ -51,6 +51,7 @@
             this._PickerStatusStrip = new System.Windows.Forms.StatusStrip();
             this._PickerStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this._DownloadStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
+            this._BatchProgressBar = new System.Windows.Forms.ToolStripProgressBar();
             this._LogoWorker = new System.ComponentModel.BackgroundWorker();
             this._ListWorker = new System.ComponentModel.BackgroundWorker();
             this._AutoUnlockWorker = new System.ComponentModel.BackgroundWorker();
@@ -116,8 +117,7 @@
             this._AutoUnlockAllButton.Name = "_AutoUnlockAllButton";
             this._AutoUnlockAllButton.Size = new System.Drawing.Size(105, 22);
             this._AutoUnlockAllButton.Text = "Auto-Unlock All";
-            this._AutoUnlockAllButton.ToolTipText = "Unlock every non-protected achievement for all games in the list (skips red/onlin" +
-    "e ones).";
+            this._AutoUnlockAllButton.ToolTipText = "Unlock every non-protected achievement in all listed games (red/online ones are skipped).";
             this._AutoUnlockAllButton.Click += new System.EventHandler(this.OnAutoUnlockAll);
             //
             // _ApiKeyButton
@@ -126,7 +126,7 @@
             this._ApiKeyButton.ImageTransparentColor = System.Drawing.Color.Magenta;
             this._ApiKeyButton.Name = "_ApiKeyButton";
             this._ApiKeyButton.Size = new System.Drawing.Size(95, 22);
-            this._ApiKeyButton.Text = "Steam API Key…";
+            this._ApiKeyButton.Text = "Set API key";
             this._ApiKeyButton.ToolTipText = "Set your Steam Web API key so completed games are skipped during Auto-Unlock All.";
             this._ApiKeyButton.Click += new System.EventHandler(this.OnConfigureApiKey);
             //
@@ -233,6 +233,7 @@
             //
             this._PickerStatusStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this._PickerStatusLabel,
+            this._BatchProgressBar,
             this._DownloadStatusLabel});
             this._PickerStatusStrip.Location = new System.Drawing.Point(0, 270);
             this._PickerStatusStrip.Name = "_PickerStatusStrip";
@@ -246,6 +247,12 @@
             this._PickerStatusLabel.Size = new System.Drawing.Size(727, 17);
             this._PickerStatusLabel.Spring = true;
             this._PickerStatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            //
+            // _BatchProgressBar
+            //
+            this._BatchProgressBar.Name = "_BatchProgressBar";
+            this._BatchProgressBar.Size = new System.Drawing.Size(160, 16);
+            this._BatchProgressBar.Visible = false;
             //
             // _DownloadStatusLabel
             //
@@ -285,7 +292,7 @@
             this.Controls.Add(this._PickerToolStrip);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "GamePicker";
-            this.Text = "Steam Achievement Manager 7.0 | Pick a game... Any game...";
+            this.Text = "Steam Achievement Manager 7.1";
             this._PickerToolStrip.ResumeLayout(false);
             this._PickerToolStrip.PerformLayout();
             this._PickerStatusStrip.ResumeLayout(false);
@@ -312,6 +319,7 @@
         private System.Windows.Forms.StatusStrip _PickerStatusStrip;
         private System.Windows.Forms.ToolStripStatusLabel _DownloadStatusLabel;
         private System.Windows.Forms.ToolStripStatusLabel _PickerStatusLabel;
+        private System.Windows.Forms.ToolStripProgressBar _BatchProgressBar;
         private System.ComponentModel.BackgroundWorker _LogoWorker;
         private System.ComponentModel.BackgroundWorker _ListWorker;
         private System.Windows.Forms.ToolStripTextBox _SearchGameTextBox;

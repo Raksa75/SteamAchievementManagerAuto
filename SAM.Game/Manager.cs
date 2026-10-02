@@ -39,10 +39,6 @@ namespace SAM.Game
         private readonly long _GameId;
         private readonly API.Client _SteamClient;
 
-        // When true, the manager runs headlessly: it unlocks every non-protected
-        // achievement, commits, and then closes itself (used for batch processing).
-        private readonly bool _AutoMode;
-
         private readonly WebClient _IconDownloader = new();
 
         private readonly List<Stats.AchievementInfo> _IconQueue = new();
@@ -57,14 +53,7 @@ namespace SAM.Game
         //private API.Callback<APITypes.UserStatsStored> UserStatsStoredCallback;
 
         public Manager(long gameId, API.Client client)
-            : this(gameId, client, false)
         {
-        }
-
-        public Manager(long gameId, API.Client client, bool autoMode)
-        {
-            this._AutoMode = autoMode;
-
             this.InitializeComponent();
 
             this._MainTabControl.SelectedTab = this._AchievementsTabPage;
@@ -88,6 +77,7 @@ namespace SAM.Game
             this._StatisticsDataGridView.Columns[2].ReadOnly = true;
             this._StatisticsDataGridView.Columns[2].Width = 200;
             this._StatisticsDataGridView.Columns[2].DataPropertyName = "Extra";
+            this._StatisticsDataGridView.Columns[2].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
 
             this._StatisticsDataGridView.DataSource = new BindingSource()
             {
@@ -100,29 +90,22 @@ namespace SAM.Game
             this._IconDownloader.DownloadDataCompleted += this.OnIconDownload;
 
             string name = this._SteamClient.SteamApps001.GetAppData((uint)this._GameId, "name");
-            if (name != null)
+            if (string.IsNullOrEmpty(name) == true)
             {
-                base.Text += " | " + name;
+                name = this._GameId.ToString(CultureInfo.InvariantCulture);
             }
-            else
-            {
-                base.Text += " | " + this._GameId.ToString(CultureInfo.InvariantCulture);
-            }
+            this.Text = $"{name} — Steam Achievement Manager";
 
             this._UserStatsReceivedCallback = client.CreateAndRegisterCallback<API.Callbacks.UserStatsReceived>();
             this._UserStatsReceivedCallback.OnRun += this.OnUserStatsReceived;
 
-            //this.UserStatsStoredCallback = new API.Callback(1102, new API.Callback.CallbackFunction(this.OnUserStatsStored));
+            this._AchievementListView.ShowItemToolTips = true;
+            this._AchievementListView.ItemChecked += this.OnAchievementChecked;
+            this._AchievementListView.ClientSizeChanged += (sender, e) => this.FitAchievementColumns();
 
             Common.Theme.Apply(this);
             Common.Theme.StyleDetailsHeaders(this._AchievementListView);
-
-            if (this._AutoMode == true)
-            {
-                // Stay out of the way while batch-processing the whole library.
-                this.WindowState = FormWindowState.Minimized;
-                this.ShowInTaskbar = false;
-            }
+            Common.Theme.SetCueBanner(this._MatchingStringTextBox, "Search achievements");
 
             this.RefreshStats();
         }
@@ -198,190 +181,21 @@ namespace SAM.Game
             _ => _($"{id}"),
         };
 
-        private static string GetLocalizedString(KeyValue kv, string language, string defaultValue)
-        {
-            var name = kv[language].AsString("");
-            if (string.IsNullOrEmpty(name) == false)
-            {
-                return name;
-            }
-
-            if (language != "english")
-            {
-                name = kv["english"].AsString("");
-                if (string.IsNullOrEmpty(name) == false)
-                {
-                    return name;
-                }
-            }
-
-            name = kv.AsString("");
-            if (string.IsNullOrEmpty(name) == false)
-            {
-                return name;
-            }
-
-            return defaultValue;
-        }
-
         private bool LoadUserGameStatsSchema()
         {
-            string path;
-            try
-            {
-                string fileName = _($"UserGameStatsSchema_{this._GameId}.bin");
-                path = API.Steam.GetInstallPath();
-                path = Path.Combine(path, "appcache", "stats", fileName);
-                if (File.Exists(path) == false)
-                {
-                    return false;
-                }
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-
-            var kv = KeyValue.LoadAsBinary(path);
-            if (kv == null)
-            {
-                return false;
-            }
-
-            var currentLanguage = this._SteamClient.SteamApps008.GetCurrentGameLanguage();
+            var schema = Stats.GameSchema.Load(
+                this._GameId,
+                this._SteamClient.SteamApps008.GetCurrentGameLanguage());
 
             this._AchievementDefinitions.Clear();
             this._StatDefinitions.Clear();
-
-            var stats = kv[this._GameId.ToString(CultureInfo.InvariantCulture)]["stats"];
-            if (stats.Valid == false || stats.Children == null)
+            if (schema == null)
             {
                 return false;
             }
 
-            foreach (var stat in stats.Children)
-            {
-                if (stat.Valid == false)
-                {
-                    continue;
-                }
-
-                APITypes.UserStatType type;
-
-                // schema in the new format?
-                var typeNode = stat["type"];
-                if (typeNode.Valid == true && typeNode.Type == KeyValueType.String)
-                {
-                    if (Enum.TryParse((string)typeNode.Value, true, out type) == false)
-                    {
-                        type = APITypes.UserStatType.Invalid;
-                    }
-                }
-                else
-                {
-                    type = APITypes.UserStatType.Invalid;
-                }
-
-                // schema in the old format?
-                if (type == APITypes.UserStatType.Invalid)
-                {
-                    var typeIntNode = stat["type_int"];
-                    var rawType = typeIntNode.Valid == true
-                        ? typeIntNode.AsInteger(0)
-                        : typeNode.AsInteger(0);
-                    type = (APITypes.UserStatType)rawType;
-                }
-
-                switch (type)
-                {
-                    case APITypes.UserStatType.Invalid:
-                    {
-                        break;
-                    }
-
-                    case APITypes.UserStatType.Integer:
-                    {
-                        var id = stat["name"].AsString("");
-                        string name = GetLocalizedString(stat["display"]["name"], currentLanguage, id);
-
-                        this._StatDefinitions.Add(new Stats.IntegerStatDefinition()
-                        {
-                            Id = stat["name"].AsString(""),
-                            DisplayName = name,
-                            MinValue = stat["min"].AsInteger(int.MinValue),
-                            MaxValue = stat["max"].AsInteger(int.MaxValue),
-                            MaxChange = stat["maxchange"].AsInteger(0),
-                            IncrementOnly = stat["incrementonly"].AsBoolean(false),
-                            SetByTrustedGameServer = stat["bSetByTrustedGS"].AsBoolean(false),
-                            DefaultValue = stat["default"].AsInteger(0),
-                            Permission = stat["permission"].AsInteger(0),
-                        });
-                        break;
-                    }
-
-                    case APITypes.UserStatType.Float:
-                    case APITypes.UserStatType.AverageRate:
-                    {
-                        var id = stat["name"].AsString("");
-                        string name = GetLocalizedString(stat["display"]["name"], currentLanguage, id);
-
-                        this._StatDefinitions.Add(new Stats.FloatStatDefinition()
-                        {
-                            Id = stat["name"].AsString(""),
-                            DisplayName = name,
-                            MinValue = stat["min"].AsFloat(float.MinValue),
-                            MaxValue = stat["max"].AsFloat(float.MaxValue),
-                            MaxChange = stat["maxchange"].AsFloat(0.0f),
-                            IncrementOnly = stat["incrementonly"].AsBoolean(false),
-                            DefaultValue = stat["default"].AsFloat(0.0f),
-                            Permission = stat["permission"].AsInteger(0),
-                        });
-                        break;
-                    }
-
-                    case APITypes.UserStatType.Achievements:
-                    case APITypes.UserStatType.GroupAchievements:
-                    {
-                        if (stat.Children != null)
-                        {
-                            foreach (var bits in stat.Children.Where(
-                                b => string.Compare(b.Name, "bits", StringComparison.InvariantCultureIgnoreCase) == 0))
-                            {
-                                if (bits.Valid == false || bits.Children == null)
-                                {
-                                    continue;
-                                }
-
-                                foreach (var bit in bits.Children)
-                                {
-                                    string id = bit["name"].AsString("");
-                                    string name = GetLocalizedString(bit["display"]["name"], currentLanguage, id);
-                                    string desc = GetLocalizedString(bit["display"]["desc"], currentLanguage, "");
-
-                                    this._AchievementDefinitions.Add(new()
-                                    {
-                                        Id = id,
-                                        Name = name,
-                                        Description = desc,
-                                        IconNormal = bit["display"]["icon"].AsString(""),
-                                        IconLocked = bit["display"]["icon_gray"].AsString(""),
-                                        IsHidden = bit["display"]["hidden"].AsBoolean(false),
-                                        Permission = bit["permission"].AsInteger(0),
-                                    });
-                                }
-                            }
-                        }
-
-                        break;
-                    }
-
-                    default:
-                    {
-                        throw new InvalidOperationException("invalid stat type");
-                    }
-                }
-            }
-
+            this._AchievementDefinitions.AddRange(schema.Achievements);
+            this._StatDefinitions.AddRange(schema.Stats);
             return true;
         }
 
@@ -391,66 +205,152 @@ namespace SAM.Game
             {
                 this._GameStatusLabel.Text = $"Error while retrieving stats: {TranslateError(param.Result)}";
                 this.EnableInput();
-                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
             if (this.LoadUserGameStatsSchema() == false)
             {
-                this._GameStatusLabel.Text = "Failed to load schema.";
+                this._GameStatusLabel.Text = "This game has no achievements or stats (no schema found).";
                 this.EnableInput();
-                this.ScheduleAutoCloseIfNeeded();
                 return;
             }
 
             try
             {
                 this.GetAchievements();
-            }
-            catch (Exception e)
-            {
-                this._GameStatusLabel.Text = "Error when handling achievements retrieval.";
-                this.EnableInput();
-                if (this._AutoMode == false)
-                {
-                    MessageBox.Show(
-                        "Error when handling achievements retrieval:\n" + e,
-                        "Error",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                }
-                this.ScheduleAutoCloseIfNeeded();
-                return;
-            }
-
-            try
-            {
                 this.GetStatistics();
             }
             catch (Exception e)
             {
-                this._GameStatusLabel.Text = "Error when handling stats retrieval.";
+                this._GameStatusLabel.Text = "Error while reading achievements and stats.";
                 this.EnableInput();
-                if (this._AutoMode == false)
-                {
-                    MessageBox.Show(
-                        "Error when handling stats retrieval:\n" + e,
-                        "Error",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                }
-                this.ScheduleAutoCloseIfNeeded();
+                MessageBox.Show(
+                    this,
+                    "Error while reading achievements and stats:\n" + e,
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
                 return;
             }
 
-            this._GameStatusLabel.Text = $"Retrieved {this._AchievementListView.Items.Count} achievements and {this._StatisticsDataGridView.Rows.Count} statistics.";
             this.EnableInput();
+            this.RecountAchievements();
+            this.UpdateStatus();
+        }
 
-            if (this._AutoMode == true)
+        // Achievement totals, computed once per refresh (not per checkbox click).
+        private int _TotalAchievements;
+        private int _UnlockedAchievements;
+        private int _LockedProtectedAchievements;
+
+        // A short confirmation ("Saved 3 achievements") shown before the summary.
+        private string _Notice;
+
+        private void RecountAchievements()
+        {
+            this._TotalAchievements = 0;
+            this._UnlockedAchievements = 0;
+            this._LockedProtectedAchievements = 0;
+
+            foreach (var definition in this._AchievementDefinitions)
             {
-                this.PerformAutoUnlock(true);
-                this.ScheduleAutoCloseIfNeeded();
+                if (string.IsNullOrEmpty(definition.Id) == true ||
+                    this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
+                        definition.Id,
+                        out bool isAchieved,
+                        out var unlockTime) == false)
+                {
+                    continue;
+                }
+
+                this._TotalAchievements++;
+                if (isAchieved == true)
+                {
+                    this._UnlockedAchievements++;
+                }
+                else if (definition.IsProtected == true)
+                {
+                    this._LockedProtectedAchievements++;
+                }
             }
+        }
+
+        private int CountPendingChanges()
+        {
+            int pending = 0;
+            foreach (ListViewItem item in this._AchievementListView.Items)
+            {
+                if (item.Tag is Stats.AchievementInfo info && info.IsAchieved != item.Checked)
+                {
+                    pending++;
+                }
+            }
+            return pending + this._Statistics.Count(stat => stat.IsModified == true);
+        }
+
+        private void UpdateStatus()
+        {
+            string summary;
+            if (this._TotalAchievements == 0)
+            {
+                summary = $"No achievements · {this._Statistics.Count} statistics";
+            }
+            else
+            {
+                // Floor, so a game is never shown as 100% while one is missing.
+                int percent = this._UnlockedAchievements * 100 / this._TotalAchievements;
+                summary = $"{this._UnlockedAchievements} of {this._TotalAchievements} achievements unlocked ({percent}%)";
+                if (this._LockedProtectedAchievements > 0)
+                {
+                    summary += $" · {this._LockedProtectedAchievements} protected";
+                }
+            }
+
+            int pending = this.CountPendingChanges();
+            if (pending > 0)
+            {
+                summary = $"{pending} unsaved change(s), Ctrl+S to save · {summary}";
+            }
+
+            this._GameStatusLabel.Text = string.IsNullOrEmpty(this._Notice) == true
+                ? summary
+                : $"{this._Notice} · {summary}";
+        }
+
+        // The description column takes whatever width is left.
+        private void FitAchievementColumns()
+        {
+            Common.Theme.FillColumn(this._AchievementListView, this._AchievementDescriptionColumnHeader.Index);
+        }
+
+        private void OnAchievementChecked(object sender, ItemCheckedEventArgs e)
+        {
+            if (this._IsUpdatingAchievementList == false)
+            {
+                this.UpdateStatus();
+            }
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            switch (keyData)
+            {
+                case Keys.F5 when this._ReloadButton.Enabled == true:
+                    this.OnRefresh(this, EventArgs.Empty);
+                    return true;
+
+                case Keys.Control | Keys.S when this._StoreButton.Enabled == true:
+                    this.OnStore(this, EventArgs.Empty);
+                    return true;
+
+                case Keys.Control | Keys.F:
+                    this._MainTabControl.SelectedTab = this._AchievementsTabPage;
+                    this._MatchingStringTextBox.Focus();
+                    this._MatchingStringTextBox.SelectAll();
+                    return true;
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         private void RefreshStats()
@@ -543,8 +443,11 @@ namespace SAM.Game
                     Checked = isAchieved,
                     Tag = info,
                     Text = info.Name,
-                    BackColor = (def.Permission & 3) == 0 ? Common.Theme.Surface : Common.Theme.DangerSurface,
+                    BackColor = def.IsProtected == true ? Common.Theme.DangerSurface : Common.Theme.Surface,
                     ForeColor = Common.Theme.TextPrimary,
+                    ToolTipText = def.IsProtected == true
+                        ? "Protected: only the game itself (online/server-side) can unlock this achievement."
+                        : info.Description,
                 };
 
                 info.Item = item;
@@ -571,6 +474,7 @@ namespace SAM.Game
 
             this._AchievementListView.EndUpdate();
             this._IsUpdatingAchievementList = false;
+            this.FitAchievementColumns();
 
             this.DownloadNextIcon();
         }
@@ -759,129 +663,70 @@ namespace SAM.Game
 
         private void OnRefresh(object sender, EventArgs e)
         {
+            this._Notice = null;
             this.RefreshStats();
         }
 
-        private void OnLockAll(object sender, EventArgs e)
+        // Bulk check/uncheck of the visible list. Protected achievements are left
+        // alone (instead of popping one error dialog per protected achievement).
+        private void SetAllChecked(Func<bool, bool> newState)
         {
+            this._IsUpdatingAchievementList = true;
+            this._AchievementListView.BeginUpdate();
             foreach (ListViewItem item in this._AchievementListView.Items)
             {
-                item.Checked = false;
+                if (item.Tag is Stats.AchievementInfo info && info.IsProtected == false)
+                {
+                    item.Checked = newState(item.Checked);
+                }
             }
+            this._AchievementListView.EndUpdate();
+            this._IsUpdatingAchievementList = false;
+            this.UpdateStatus();
         }
 
-        private void OnInvertAll(object sender, EventArgs e)
-        {
-            foreach (ListViewItem item in this._AchievementListView.Items)
-            {
-                item.Checked = !item.Checked;
-            }
-        }
+        private void OnLockAll(object sender, EventArgs e) => this.SetAllChecked(_ => false);
 
-        private void OnUnlockAll(object sender, EventArgs e)
-        {
-            foreach (ListViewItem item in this._AchievementListView.Items)
-            {
-                item.Checked = true;
-            }
-        }
+        private void OnInvertAll(object sender, EventArgs e) => this.SetAllChecked(isChecked => !isChecked);
 
-        // Unlocks every achievement that can legitimately be set, skipping any
-        // protected/online achievement (the ones shown in red) and any that are
-        // already unlocked, then commits the result to Steam. Returns true if at
-        // least one achievement was newly unlocked.
-        private bool PerformAutoUnlock(bool silent)
-        {
-            int unlocked = 0;
-            int skipped = 0;
-            int failed = 0;
-
-            foreach (var def in this._AchievementDefinitions)
-            {
-                if (string.IsNullOrEmpty(def.Id) == true)
-                {
-                    continue;
-                }
-
-                // Protected/online achievements cannot be managed by SAM.
-                if ((def.Permission & 3) != 0)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
-                    def.Id,
-                    out bool isAchieved,
-                    out var unlockTime) == false)
-                {
-                    continue;
-                }
-
-                if (isAchieved == true)
-                {
-                    continue;
-                }
-
-                if (this._SteamClient.SteamUserStats.SetAchievement(def.Id, true) == true)
-                {
-                    unlocked++;
-                }
-                else
-                {
-                    failed++;
-                }
-            }
-
-            if (unlocked > 0)
-            {
-                this._SteamClient.SteamUserStats.StoreStats();
-            }
-
-            this._GameStatusLabel.Text =
-                $"Auto-unlock: {unlocked} unlocked, {skipped} protected (skipped), {failed} failed.";
-
-            if (silent == false)
-            {
-                MessageBox.Show(
-                    this,
-                    $"Unlocked {unlocked} achievement(s).\n" +
-                    $"Skipped {skipped} protected/online achievement(s).\n" +
-                    (failed > 0 ? $"Failed to unlock {failed} achievement(s).\n" : ""),
-                    "Auto-Unlock",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-                this.RefreshStats();
-            }
-
-            return unlocked > 0;
-        }
-
-        // In auto mode, give Steam a moment to flush the stored stats, then close.
-        private void ScheduleAutoCloseIfNeeded()
-        {
-            if (this._AutoMode == false)
-            {
-                return;
-            }
-
-            var closeTimer = new Timer() { Interval = 1000 };
-            closeTimer.Tick += (s, e) =>
-            {
-                closeTimer.Stop();
-                closeTimer.Dispose();
-                this.Close();
-            };
-            closeTimer.Start();
-        }
+        private void OnUnlockAll(object sender, EventArgs e) => this.SetAllChecked(_ => true);
 
         private void OnAutoUnlock(object sender, EventArgs e)
         {
+            var unlockable = AutoUnlocker.GetUnlockable(
+                this._SteamClient,
+                this._AchievementDefinitions,
+                out int lockedProtected);
+
+            if (unlockable.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    lockedProtected == 0
+                        ? "Nothing to unlock: this game is already at 100%."
+                        : "Nothing to unlock: every achievement SAM can change is already unlocked.\n\n" +
+                          $"{lockedProtected} protected achievement(s) can only be earned by playing.",
+                    "Auto-Unlock",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            var question = $"Unlock {unlockable.Count} achievement(s) and save them to Steam?";
+            if (lockedProtected > 0)
+            {
+                question += $"\n\n{lockedProtected} protected achievement(s) (shown in red) will stay locked.";
+            }
+
+            int pending = this.CountPendingChanges();
+            if (pending > 0)
+            {
+                question += $"\n\nYour {pending} unsaved change(s) will be discarded.";
+            }
+
             if (MessageBox.Show(
                 this,
-                "This will unlock ALL non-protected achievements for this game and commit them to Steam.\n\n" +
-                "Protected/online achievements (shown in red) will be skipped.\n\n" +
-                "Continue?",
+                question,
                 "Auto-Unlock",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -889,7 +734,24 @@ namespace SAM.Game
                 return;
             }
 
-            this.PerformAutoUnlock(false);
+            int unlocked = AutoUnlocker.SetUnlocked(this._SteamClient, unlockable, out int failed);
+            if (unlocked == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "Steam refused to unlock these achievements.",
+                    "Auto-Unlock",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            else if (this.Store() == true)
+            {
+                this._Notice = failed == 0
+                    ? $"✓ Unlocked {unlocked} achievement(s)"
+                    : $"✓ Unlocked {unlocked} achievement(s), {failed} failed";
+            }
+
+            this.RefreshStats();
         }
 
         private bool Store()
@@ -910,6 +772,16 @@ namespace SAM.Game
 
         private void OnStore(object sender, EventArgs e)
         {
+            // Commit a stat value that is still being edited (e.g. Ctrl+S in a cell).
+            this._StatisticsDataGridView.EndEdit();
+
+            if (this.CountPendingChanges() == 0)
+            {
+                this._Notice = "Nothing to save";
+                this.UpdateStatus();
+                return;
+            }
+
             int achievements = this.StoreAchievements();
             if (achievements < 0)
             {
@@ -930,12 +802,7 @@ namespace SAM.Game
                 return;
             }
 
-            MessageBox.Show(
-                this,
-                $"Stored {achievements} achievements and {stats} statistics.",
-                "Information",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            this._Notice = $"✓ Saved {achievements} achievement(s) and {stats} statistic(s)";
             this.RefreshStats();
         }
 
@@ -970,6 +837,7 @@ namespace SAM.Game
         {
             var view = (DataGridView)sender;
             view.Rows[e.RowIndex].ErrorText = "";
+            this.UpdateStatus();
         }
 
         private void OnResetAllStats(object sender, EventArgs e)
@@ -1024,14 +892,15 @@ namespace SAM.Game
                 return;
             }
 
-            if ((info.Permission & 3) != 0)
+            if (info.IsProtected == true)
             {
                 MessageBox.Show(
                     this,
-                    "Sorry, but this is a protected achievement and cannot be managed with Steam Achievement Manager.",
-                    "Error",
+                    "This achievement is protected: only the game itself (online/server-side) can unlock it, " +
+                    "so Steam Achievement Manager can't change it.",
+                    "Protected achievement",
                     MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    MessageBoxIcon.Information);
                 e.NewValue = e.CurrentValue;
             }
         }

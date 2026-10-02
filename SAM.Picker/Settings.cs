@@ -24,13 +24,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SAM.Picker
 {
     // A tiny key=value settings store kept in the user's AppData folder. Used to
-    // persist the (optional) Steam Web API key between runs.
+    // persist the (optional) Steam Web API key between runs. The key is encrypted
+    // with DPAPI, so only the current Windows user can read it back.
     internal static class Settings
     {
+        private const string ProtectedPrefix = "dpapi:";
+        private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("SAM.Picker.ApiKey");
         private static string FilePath
         {
             get
@@ -44,8 +49,47 @@ namespace SAM.Picker
 
         public static string ApiKey
         {
-            get => Read("ApiKey");
-            set => Write("ApiKey", value);
+            get
+            {
+                var stored = Read("ApiKey");
+                if (stored.StartsWith(ProtectedPrefix, StringComparison.Ordinal) == false)
+                {
+                    return stored; // empty, or a plain-text key from an older version
+                }
+
+                try
+                {
+                    var data = Convert.FromBase64String(stored.Substring(ProtectedPrefix.Length));
+                    return Encoding.UTF8.GetString(
+                        ProtectedData.Unprotect(data, Entropy, DataProtectionScope.CurrentUser));
+                }
+                catch (Exception)
+                {
+                    return ""; // written by another Windows user/machine
+                }
+            }
+
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value) == true)
+                {
+                    Write("ApiKey", "");
+                    return;
+                }
+
+                try
+                {
+                    var data = ProtectedData.Protect(
+                        Encoding.UTF8.GetBytes(value.Trim()),
+                        Entropy,
+                        DataProtectionScope.CurrentUser);
+                    Write("ApiKey", ProtectedPrefix + Convert.ToBase64String(data));
+                }
+                catch (Exception)
+                {
+                    Write("ApiKey", value.Trim());
+                }
+            }
         }
 
         private static string Read(string key)

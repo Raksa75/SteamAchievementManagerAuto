@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build (Release, x86)
+        run: msbuild SAM.sln /restore /m /v:minimal /p:Configuration=Release /p:Platform=x86
+
+      - name: Upload executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteamAchievementManager
+          path: |
+            upload/*.exe
+            upload/*.dll
+            upload/*.config
+          if-no-files-found: error

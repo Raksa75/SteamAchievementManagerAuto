@@ -36,7 +36,7 @@ namespace SAM.API
 
         public void Run(IntPtr param)
         {
-            this.OnRun(param);
+            this.OnRun?.Invoke(param);
         }
     }
 
@@ -52,8 +52,14 @@ namespace SAM.API
 
         public void Run(IntPtr pvParam)
         {
+            var handler = this.OnRun;
+            if (handler == null)
+            {
+                return;
+            }
+
             var data = (TParameter)Marshal.PtrToStructure(pvParam, typeof(TParameter));
-            this.OnRun(data);
+            handler(data);
         }
     }
 }

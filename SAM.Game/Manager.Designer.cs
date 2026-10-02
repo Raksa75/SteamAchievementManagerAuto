@@ -42,7 +42,7 @@
             this._GameStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this._DownloadStatusLabel = new System.Windows.Forms.ToolStripStatusLabel();
             this._CallbackTimer = new System.Windows.Forms.Timer(this.components);
-            this._MainTabControl = new System.Windows.Forms.TabControl();
+            this._MainTabControl = new SAM.Common.DarkTabControl();
             this._AchievementsTabPage = new System.Windows.Forms.TabPage();
             this._AchievementListView = new SAM.Game.DoubleBufferedListView();
             this._AchievementNameColumnHeader = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -100,9 +100,9 @@
             this._StoreButton.Image = global::SAM.Game.Resources.Save;
             this._StoreButton.ImageTransparentColor = System.Drawing.Color.Magenta;
             this._StoreButton.Name = "_StoreButton";
-            this._StoreButton.Size = new System.Drawing.Size(120, 22);
-            this._StoreButton.Text = "Commit Changes";
-            this._StoreButton.ToolTipText = "Store achievements and statistics for active game.";
+            this._StoreButton.Size = new System.Drawing.Size(100, 22);
+            this._StoreButton.Text = "Save Changes";
+            this._StoreButton.ToolTipText = "Save your changes to Steam (Ctrl+S).";
             this._StoreButton.Click += new System.EventHandler(this.OnStore);
             // 
             // _ReloadButton
@@ -113,7 +113,7 @@
             this._ReloadButton.Name = "_ReloadButton";
             this._ReloadButton.Size = new System.Drawing.Size(66, 22);
             this._ReloadButton.Text = "Refresh";
-            this._ReloadButton.ToolTipText = "Refresh achievements and statistics for active game.";
+            this._ReloadButton.ToolTipText = "Reload achievements and statistics (F5).";
             this._ReloadButton.Click += new System.EventHandler(this.OnRefresh);
             // 
             // _ResetButton
@@ -222,7 +222,7 @@
             // _AchievementNameColumnHeader
             // 
             this._AchievementNameColumnHeader.Text = "Name";
-            this._AchievementNameColumnHeader.Width = 200;
+            this._AchievementNameColumnHeader.Width = 220;
             // 
             // _AchievementDescriptionColumnHeader
             // 
@@ -232,7 +232,7 @@
             // _AchievementUnlockTimeColumnHeader
             // 
             this._AchievementUnlockTimeColumnHeader.Text = "Unlock Time";
-            this._AchievementUnlockTimeColumnHeader.Width = 160;
+            this._AchievementUnlockTimeColumnHeader.Width = 140;
             // 
             // _AchievementsToolStrip
             // 
@@ -261,7 +261,7 @@
             this._LockAllButton.Name = "_LockAllButton";
             this._LockAllButton.Size = new System.Drawing.Size(23, 22);
             this._LockAllButton.Text = "Lock All";
-            this._LockAllButton.ToolTipText = "Lock all achievements.";
+            this._LockAllButton.ToolTipText = "Lock all listed achievements (saved when you press Save Changes).";
             this._LockAllButton.Click += new System.EventHandler(this.OnLockAll);
             // 
             // _InvertAllButton
@@ -272,7 +272,7 @@
             this._InvertAllButton.Name = "_InvertAllButton";
             this._InvertAllButton.Size = new System.Drawing.Size(23, 22);
             this._InvertAllButton.Text = "Invert All";
-            this._InvertAllButton.ToolTipText = "Invert all achievements.";
+            this._InvertAllButton.ToolTipText = "Invert all listed achievements (saved when you press Save Changes).";
             this._InvertAllButton.Click += new System.EventHandler(this.OnInvertAll);
             // 
             // _UnlockAllButton
@@ -283,7 +283,7 @@
             this._UnlockAllButton.Name = "_UnlockAllButton";
             this._UnlockAllButton.Size = new System.Drawing.Size(23, 22);
             this._UnlockAllButton.Text = "Unlock All";
-            this._UnlockAllButton.ToolTipText = "Unlock all achievements.";
+            this._UnlockAllButton.ToolTipText = "Unlock all listed achievements (saved when you press Save Changes).";
             this._UnlockAllButton.Click += new System.EventHandler(this.OnUnlockAll);
             //
             // _AutoUnlockButton
@@ -294,7 +294,7 @@
             this._AutoUnlockButton.Name = "_AutoUnlockButton";
             this._AutoUnlockButton.Size = new System.Drawing.Size(85, 22);
             this._AutoUnlockButton.Text = "Auto-Unlock";
-            this._AutoUnlockButton.ToolTipText = "Unlock and commit every non-protected achievement (skips red/online ones).";
+            this._AutoUnlockButton.ToolTipText = "Unlock and save every achievement SAM can change (protected/red ones are skipped).";
             this._AutoUnlockButton.Click += new System.EventHandler(this.OnAutoUnlock);
             //
             // _DisplayLabel
@@ -336,7 +336,7 @@
             this._MatchingStringTextBox.Font = new System.Drawing.Font("Segoe UI", 9F);
             this._MatchingStringTextBox.Name = "_MatchingStringTextBox";
             this._MatchingStringTextBox.Size = new System.Drawing.Size(100, 25);
-            this._MatchingStringTextBox.ToolTipText = "Type at least 3 characters that must appear in the name or description";
+            this._MatchingStringTextBox.ToolTipText = "Show achievements whose name or description contains this text (Ctrl+F).";
             this._MatchingStringTextBox.KeyUp += new System.Windows.Forms.KeyEventHandler(this.OnFilterUpdate);
             // 
             // _StatisticsTabPage
@@ -375,7 +375,7 @@
             this._StatisticsDataGridView.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             this._StatisticsDataGridView.Location = new System.Drawing.Point(6, 6);
             this._StatisticsDataGridView.Name = "_StatisticsDataGridView";
-            this._StatisticsDataGridView.Size = new System.Drawing.Size(596, 273);
+            this._StatisticsDataGridView.Size = new System.Drawing.Size(676, 273);
             this._StatisticsDataGridView.TabIndex = 0;
             this._StatisticsDataGridView.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.OnStatCellEndEdit);
             this._StatisticsDataGridView.DataError += new System.Windows.Forms.DataGridViewDataErrorEventHandler(this.OnStatDataError);
@@ -391,7 +391,7 @@
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MinimumSize = new System.Drawing.Size(640, 50);
             this.Name = "Manager";
-            this.Text = "Steam Achievement Manager 7.0";
+            this.Text = "Steam Achievement Manager";
             this._MainToolStrip.ResumeLayout(false);
             this._MainToolStrip.PerformLayout();
             this._MainStatusStrip.ResumeLayout(false);
@@ -419,7 +419,7 @@
         private System.Windows.Forms.ToolStripStatusLabel _GameStatusLabel;
         private System.Windows.Forms.ImageList _AchievementImageList;
         private System.Windows.Forms.Timer _CallbackTimer;
-        private System.Windows.Forms.TabControl _MainTabControl;
+        private SAM.Common.DarkTabControl _MainTabControl;
         private System.Windows.Forms.TabPage _AchievementsTabPage;
         private System.Windows.Forms.TabPage _StatisticsTabPage;
         private DoubleBufferedListView _AchievementListView;

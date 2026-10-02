@@ -20,31 +20,11 @@
  *    distribution.
  */
 
-using System;
-using System.Windows.Forms;
-
-namespace SAM.Game.Stats
+namespace SAM.API.Callbacks
 {
-    internal class AchievementInfo
+    public class UserStatsStored : Callback<Types.UserStatsStored>
     {
-        public string Id;
-        public bool IsAchieved;
-        public DateTime? UnlockTime;
-        public int Permission;
-        public string IconNormal;
-        public string IconLocked;
-        public string Name;
-        public string Description;
-        public ListViewItem Item;
-
-        public bool IsProtected => (this.Permission & 3) != 0;
-
-        #region public int ImageIndex;
-        public int ImageIndex
-        {
-            get => this.Item.ImageIndex;
-            set => this.Item.ImageIndex = value;
-        }
-        #endregion
+        public override int Id => 1102;
+        public override bool IsServer => false;
     }
 }
